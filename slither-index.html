@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Slither Arena</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0a0a;overflow:hidden;font-family:sans-serif;height:100vh;touch-action:none}canvas{display:block;cursor:none}
+#ui{position:fixed;top:10px;left:10px;z-index:10;display:flex;flex-direction:column;gap:5px}
+#name-bar{background:rgba(0,0,0,.7);padding:10px 14px;border-radius:10px;display:flex;gap:8px;align-items:center}
+#name-bar input{padding:7px 10px;border:1px solid #333;border-radius:7px;background:#1a1a1a;color:#fff;font-size:.85rem;width:130px;outline:none}
+#name-bar input:focus{border-color:#5af}
+#name-bar button{padding:7px 16px;border:none;background:#5af;color:#111;border-radius:7px;font-weight:700;font-size:.82rem;cursor:pointer}
+.hud{background:rgba(0,0,0,.6);color:#aaa;padding:5px 10px;border-radius:7px;font-size:.72rem;max-width:180px}
+#score{color:#5af;font-weight:700;font-size:.82rem}
+#lb div{padding:1px 0}.me{color:#5af;font-weight:700}
+#boost-bar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);width:160px;height:6px;background:rgba(255,255,255,.08);border-radius:3px;z-index:10;display:none}
+#boost-fill{height:100%;background:#5af;border-radius:3px;width:100%;transition:width .1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+<div id="name-bar"><input id="ni" placeholder="Your name..." maxlength="12"><button onclick="go()">Play!</button></div>
+<div class="hud" id="info">Mouse to steer · SPACE to boost</div>
+<div class="hud" id="score" style="display:none">Score: 0</div>
+<div class="hud" id="lb" style="display:none"></div>
+</div>
+<div id="boost-bar"><div id="boost-fill"></div></div>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyASPNSXdFs2B3X8mbUq-nBYlgAIR7BSx6E",authDomain:"fortuna-64c00.firebaseapp.com",databaseURL:"https://fortuna-64c00-default-rtdb.firebaseio.com",projectId:"fortuna-64c00",storageBucket:"fortuna-64c00.firebasestorage.app",messagingSenderId:"329218105683",appId:"1:329218105683:web:6b16fd2b1091531e4481a6"});
+const db=firebase.database(),RT='slither',cv=document.getElementById('c'),cx=cv.getContext('2d');
+const WS=3000,BS=3,BBS=6,SD=8,SL=20,FC=120;
+function rC(){return'hsl('+~~(Math.random()*360)+',70%,55%)'}
+function rs(){cv.width=innerWidth;cv.height=innerHeight}
+addEventListener('resize',rs);rs();
+const myId='s_'+Date.now()+'_'+Math.random().toString(36).substr(2,5);
+let nm='',mc=rC(),joined=false,ang=0,boost=false,bp=100,segs=[],sc=0,alive=true;
+let players={},rp={},food=[],mx=cv.width/2,my=cv.height/2;
+function go(){nm=document.getElementById('ni').value.trim()||'Unknown';document.getElementById('name-bar').style.display='none';document.getElementById('score').style.display='block';document.getElementById('lb').style.display='block';document.getElementById('boost-bar').style.display='block';join()}
+document.getElementById('ni').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+function join(){if(joined)return;joined=true;alive=true;
+const sx=200+~~(Math.random()*(WS-400)),sy=200+~~(Math.random()*(WS-400));
+segs=[];for(let i=0;i<SL;i++)segs.push({x:sx,y:sy});sc=0;bp=100;ang=Math.random()*Math.PI*2;
+const ref=db.ref(RT+'/p/'+myId);
+ref.set({n:nm,c:mc,hx:sx,hy:sy,a:0,l:SL,s:0,t:Date.now(),sg:[]});
+ref.onDisconnect().remove();
+db.ref(RT+'/p').on('value',sn=>{const r=sn.val()||{};Object.entries(r).forEach(([id,p])=>{if(id===myId)return;if(!rp[id])rp[id]={hx:p.hx,hy:p.hy,sg:[]};rp[id].t=p});Object.keys(rp).forEach(id=>{if(!r[id])delete rp[id]});players=r});
+db.ref(RT+'/f').on('value',sn=>{food=sn.val()||[]});
+db.ref(RT+'/p').once('value').then(sn=>{if(Object.keys(sn.val()||{}).length<=1)genFood()});
+requestAnimationFrame(loop);setInterval(sync,80)}
+function genFood(){const f=[];for(let i=0;i<FC;i++)f.push({x:~~(Math.random()*WS),y:~~(Math.random()*WS),c:'hsl('+~~(Math.random()*360)+',80%,60%)'});db.ref(RT+'/f').set(f)}
+function sync(){if(!joined||!alive)return;const h=segs[0],sg=[];for(let i=0;i<segs.length;i+=Math.max(1,~~(segs.length/12)))sg.push({x:~~(segs[i].x),y:~~(segs[i].y)});
+db.ref(RT+'/p/'+myId).update({hx:~~h.x,hy:~~h.y,a:ang,l:segs.length,s:sc,t:Date.now(),sg})}
+addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
+addEventListener('keydown',e=>{if(e.code==='Space'){boost=true;e.preventDefault()}if(!joined&&e.key==='Enter')go()});
+addEventListener('keyup',e=>{if(e.code==='Space')boost=false});
+function loop(){update();draw();requestAnimationFrame(loop)}
+function update(){if(!alive)return;
+const h=segs[0],ta=Math.atan2(my-cv.height/2,mx-cv.width/2);
+let da=ta-ang;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;ang+=da*0.12;
+let sp=BS;if(boost&&bp>0){sp=BBS;bp=Math.max(0,bp-1.5)}else bp=Math.min(100,bp+0.4);
+document.getElementById('boost-fill').style.width=bp+'%';
+segs[0]={x:Math.max(0,Math.min(WS,h.x+Math.cos(ang)*sp)),y:Math.max(0,Math.min(WS,h.y+Math.sin(ang)*sp))};
+for(let i=1;i<segs.length;i++){const p=segs[i-1],c=segs[i],dx=p.x-c.x,dy=p.y-c.y,d=Math.sqrt(dx*dx+dy*dy);if(d>SD){const r=SD/d;segs[i]={x:p.x-dx*r,y:p.y-dy*r}}}
+let ate=false;food.forEach((f,i)=>{if(!f)return;const dx=segs[0].x-f.x,dy=segs[0].y-f.y;if(dx*dx+dy*dy<400){food[i]={x:~~(Math.random()*WS),y:~~(Math.random()*WS),c:'hsl('+~~(Math.random()*360)+',80%,60%)'};ate=true;sc+=10;const tl=segs[segs.length-1];for(let j=0;j<3;j++)segs.push({...tl})}});
+if(ate)db.ref(RT+'/f').set(food);
+document.getElementById('score').textContent='Score: '+sc+' · Length: '+segs.length;
+Object.entries(rp).forEach(([id,r])=>{if(!r.t)return;const t=r.t;if(t.sg&&t.sg.length){if(!r.sg||!r.sg.length)r.sg=t.sg.map(s=>({...s}));else t.sg.forEach((ts,i)=>{if(!r.sg[i])r.sg[i]={...ts};else{r.sg[i].x+=(ts.x-r.sg[i].x)*.18;r.sg[i].y+=(ts.y-r.sg[i].y)*.18}})}r.hx=(r.hx||t.hx);r.hy=(r.hy||t.hy);r.hx+=(t.hx-r.hx)*.15;r.hy+=(t.hy-r.hy)*.15});
+const lb=document.getElementById('lb'),all=[{n:nm,s:sc,id:myId}];Object.entries(players).forEach(([id,p])=>{if(id!==myId)all.push({n:p.n,s:p.s||0,id})});all.sort((a,b)=>b.s-a.s);
+lb.innerHTML='<div style="color:#5af;font-weight:800;margin-bottom:3px">🏆 Leaderboard</div>'+all.slice(0,6).map((p,i)=>'<div class="'+(p.id===myId?'me':'')+'">'+[i+1]+'. '+p.n+': '+p.s+'</div>').join('')}
+function draw(){const W=cv.width,H=cv.height,hd=segs[0]||{x:0,y:0},cX=hd.x-W/2,cY=hd.y-H/2;
+cx.fillStyle='#0a0a0a';cx.fillRect(0,0,W,H);
+cx.strokeStyle='#131313';cx.lineWidth=1;const gs=50;
+for(let x=(-cX%gs+gs)%gs;x<W;x+=gs){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,H);cx.stroke()}
+for(let y=(-cY%gs+gs)%gs;y<H;y+=gs){cx.beginPath();cx.moveTo(0,y);cx.lineTo(W,y);cx.stroke()}
+cx.strokeStyle='#222';cx.lineWidth=3;cx.strokeRect(-cX,-cY,WS,WS);
+food.forEach(f=>{if(!f)return;const fx=f.x-cX,fy=f.y-cY;if(fx<-20||fx>W+20||fy<-20||fy>H+20)return;cx.fillStyle=f.c;cx.beginPath();cx.arc(fx,fy,5,0,Math.PI*2);cx.fill();cx.fillStyle='rgba(255,255,255,.1)';cx.beginPath();cx.arc(fx,fy,8,0,Math.PI*2);cx.fill()});
+Object.entries(rp).forEach(([id,r])=>{if(!r.t||!r.sg||r.sg.length<2)return;const c=r.t.c||'#888';
+cx.strokeStyle=c;cx.lineWidth=14;cx.lineCap='round';cx.lineJoin='round';cx.globalAlpha=.7;cx.beginPath();cx.moveTo(r.sg[0].x-cX,r.sg[0].y-cY);r.sg.forEach(s=>cx.lineTo(s.x-cX,s.y-cY));cx.stroke();cx.globalAlpha=1;
+const hx=r.hx-cX,hy=r.hy-cY;cx.fillStyle=c;cx.beginPath();cx.arc(hx,hy,9,0,Math.PI*2);cx.fill();cx.fillStyle='#fff';cx.beginPath();cx.arc(hx-3,hy-2,3,0,Math.PI*2);cx.fill();cx.beginPath();cx.arc(hx+3,hy-2,3,0,Math.PI*2);cx.fill();cx.fillStyle='#111';cx.beginPath();cx.arc(hx-2,hy-1,1.5,0,Math.PI*2);cx.fill();cx.beginPath();cx.arc(hx+4,hy-1,1.5,0,Math.PI*2);cx.fill();
+cx.font='bold 10px sans-serif';cx.textAlign='center';cx.fillStyle='rgba(0,0,0,.5)';const tw=cx.measureText(r.t.n||'?').width;cx.fillRect(hx-tw/2-3,hy-22,tw+6,14);cx.fillStyle='#ccc';cx.fillText(r.t.n||'?',hx,hy-12)});
+if(alive&&segs.length>1){cx.strokeStyle='rgba(0,0,0,.15)';cx.lineWidth=18;cx.lineCap='round';cx.lineJoin='round';cx.beginPath();cx.moveTo(segs[0].x-cX,segs[0].y-cY);for(let i=1;i<segs.length;i++)cx.lineTo(segs[i].x-cX,segs[i].y-cY);cx.stroke();
+cx.strokeStyle=mc;cx.lineWidth=14;cx.beginPath();cx.moveTo(segs[0].x-cX,segs[0].y-cY);for(let i=1;i<segs.length;i++)cx.lineTo(segs[i].x-cX,segs[i].y-cY);cx.stroke();
+const hx=segs[0].x-cX,hy=segs[0].y-cY;cx.fillStyle=mc;cx.beginPath();cx.arc(hx,hy,11,0,Math.PI*2);cx.fill();cx.strokeStyle='rgba(255,255,255,.25)';cx.lineWidth=2;cx.stroke();
+const ex=Math.cos(ang)*4,ey=Math.sin(ang)*4;cx.fillStyle='#fff';cx.beginPath();cx.arc(hx+ex-Math.sin(ang)*4,hy+ey+Math.cos(ang)*4,3.5,0,Math.PI*2);cx.fill();cx.beginPath();cx.arc(hx+ex+Math.sin(ang)*4,hy+ey-Math.cos(ang)*4,3.5,0,Math.PI*2);cx.fill();cx.fillStyle='#111';cx.beginPath();cx.arc(hx+ex*1.3-Math.sin(ang)*4,hy+ey*1.3+Math.cos(ang)*4,1.8,0,Math.PI*2);cx.fill();cx.beginPath();cx.arc(hx+ex*1.3+Math.sin(ang)*4,hy+ey*1.3-Math.cos(ang)*4,1.8,0,Math.PI*2);cx.fill();
+cx.font='bold 11px sans-serif';cx.textAlign='center';cx.fillStyle='rgba(0,0,0,.5)';const tw=cx.measureText(nm).width;cx.fillRect(hx-tw/2-4,hy-26,tw+8,15);cx.fillStyle='#fff';cx.fillText(nm,hx,hy-14);
+if(boost&&bp>0){for(let i=0;i<3;i++){const px=segs[Math.min(4,segs.length-1)].x-cX+(Math.random()-.5)*16,py=segs[Math.min(4,segs.length-1)].y-cY+(Math.random()-.5)*16;cx.fillStyle='hsla('+(180+~~(Math.random()*60))+',80%,70%,.4)';cx.beginPath();cx.arc(px,py,2+Math.random()*2,0,Math.PI*2);cx.fill()}}}
+const mm=90,mmX=W-mm-8,mmY=H-mm-8;cx.fillStyle='rgba(0,0,0,.4)';cx.fillRect(mmX,mmY,mm,mm);cx.strokeStyle='#1a1a1a';cx.strokeRect(mmX,mmY,mm,mm);cx.fillStyle='#fff';cx.fillRect(mmX+(hd.x/WS)*mm-2,mmY+(hd.y/WS)*mm-2,4,4);Object.entries(players).forEach(([id,p])=>{if(id===myId)return;cx.fillStyle=p.c||'#888';cx.fillRect(mmX+(p.hx/WS)*mm-1,mmY+(p.hy/WS)*mm-1,3,3)})}
+setInterval(()=>{if(!joined)return;const now=Date.now();Object.entries(players).forEach(([id,p])=>{if(id!==myId&&now-p.t>12000)db.ref(RT+'/p/'+id).remove()})},5000);
+</script>
+</body>
+</html>
