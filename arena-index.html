@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Arena — Real-Time Multiplayer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;overflow:hidden;font-family:sans-serif;height:100vh;touch-action:none}
+canvas{display:block}
+#ui{position:fixed;top:12px;left:12px;z-index:10;display:flex;flex-direction:column;gap:6px}
+#name-bar{background:rgba(0,0,0,.6);padding:8px 14px;border-radius:10px;display:flex;gap:8px;align-items:center}
+#name-bar input{padding:6px 10px;border:1px solid #333;border-radius:6px;background:#1a1a1a;color:#fff;font-size:.85rem;width:130px;outline:none;font-family:sans-serif}
+#name-bar input:focus{border-color:#5af}
+#name-bar button{padding:6px 14px;border:none;background:#5af;color:#111;border-radius:6px;font-weight:700;font-size:.8rem;cursor:pointer}
+#info{background:rgba(0,0,0,.5);color:#888;padding:6px 12px;border-radius:8px;font-size:.72rem;max-width:200px}
+#players{background:rgba(0,0,0,.5);color:#aaa;padding:6px 12px;border-radius:8px;font-size:.72rem;max-width:200px}
+#mobile-controls{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:none;z-index:10}
+.dpad{display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:60px 60px 60px;gap:4px}
+.dpad button{border:none;border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-size:1.3rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.dpad button:active{background:rgba(255,255,255,.25)}
+.dpad .empty{background:transparent}
+@media(pointer:coarse){#mobile-controls{display:block}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="name-bar">
+    <input id="name-input" placeholder="Your name..." maxlength="12">
+    <button onclick="setName()">Join</button>
+  </div>
+  <div id="info">WASD or Arrows to move</div>
+  <div id="players" id="player-count">Players: 0</div>
+</div>
+<div id="mobile-controls">
+  <div class="dpad">
+    <div class="empty"></div>
+    <button ontouchstart="startMove('up')" ontouchend="stopMove('up')">▲</button>
+    <div class="empty"></div>
+    <button ontouchstart="startMove('left')" ontouchend="stopMove('left')">◀</button>
+    <div class="empty"></div>
+    <button ontouchstart="startMove('right')" ontouchend="stopMove('right')">▶</button>
+    <div class="empty"></div>
+    <button ontouchstart="startMove('down')" ontouchend="stopMove('down')">▼</button>
+    <div class="empty"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyASPNSXdFs2B3X8mbUq-nBYlgAIR7BSx6E",authDomain:"fortuna-64c00.firebaseapp.com",databaseURL:"https://fortuna-64c00-default-rtdb.firebaseio.com",projectId:"fortuna-64c00",storageBucket:"fortuna-64c00.firebasestorage.app",messagingSenderId:"329218105683",appId:"1:329218105683:web:6b16fd2b1091531e4481a6"});
+const db=firebase.database(),RT='arena';
+
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+
+// World size
+const WORLD_W=2000,WORLD_H=2000;
+const SPEED=4;
+const SIZE=24;
+
+// Generate random color
+function randColor(){
+  const h=~~(Math.random()*360);
+  return`hsl(${h},70%,55%)`;
+}
+
+// My player
+const myId='p_'+Date.now()+'_'+Math.random().toString(36).substr(2,6);
+let myName='Unknown';
+let myColor=randColor();
+let myX=~~(Math.random()*WORLD_W);
+let myY=~~(Math.random()*WORLD_H);
+let joined=false;
+
+// All players
+let players={};
+
+// Keys pressed
+const keys={up:false,down:false,left:false,right:false};
+
+// ═══ RESIZE ═══
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
+window.addEventListener('resize',resize);resize();
+
+// ═══ NAME ═══
+function setName(){
+  const input=document.getElementById('name-input');
+  const name=input.value.trim()||'Unknown';
+  myName=name;
+  document.getElementById('name-bar').style.display='none';
+  join();
+}
+
+// ═══ JOIN ═══
+function join(){
+  if(joined)return;joined=true;
+  const ref=db.ref(RT+'/'+myId);
+  ref.set({name:myName,color:myColor,x:myX,y:myY,t:Date.now()});
+  ref.onDisconnect().remove();
+
+  // Listen for all players
+  db.ref(RT).on('value',snap=>{
+    players=snap.val()||{};
+    const count=Object.keys(players).length;
+    document.getElementById('players').textContent='Players online: '+count;
+  });
+
+  // Start game loop
+  requestAnimationFrame(loop);
+  // Start sync
+  setInterval(sync,50);
+}
+
+// ═══ SYNC ═══
+function sync(){
+  if(!joined)return;
+  db.ref(RT+'/'+myId).update({x:myX,y:myY,t:Date.now()});
+}
+
+// ═══ INPUT ═══
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.key==='ArrowUp'||e.key==='w'||e.key==='W')keys.up=true;
+  if(e.key==='ArrowDown'||e.key==='s'||e.key==='S')keys.down=true;
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')keys.left=true;
+  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')keys.right=true;
+  if(!joined&&e.key==='Enter')setName();
+});
+document.addEventListener('keyup',e=>{
+  if(e.key==='ArrowUp'||e.key==='w'||e.key==='W')keys.up=false;
+  if(e.key==='ArrowDown'||e.key==='s'||e.key==='S')keys.down=false;
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')keys.left=false;
+  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')keys.right=false;
+});
+
+// Mobile controls
+function startMove(dir){keys[dir]=true;if(!joined)setName()}
+function stopMove(dir){keys[dir]=false}
+
+// ═══ GAME LOOP ═══
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function update(){
+  if(!joined)return;
+  if(keys.up)myY=Math.max(0,myY-SPEED);
+  if(keys.down)myY=Math.min(WORLD_H,myY+SPEED);
+  if(keys.left)myX=Math.max(0,myX-SPEED);
+  if(keys.right)myX=Math.min(WORLD_W,myX+SPEED);
+}
+
+function draw(){
+  const W=canvas.width,H=canvas.height;
+  // Camera centered on player
+  const camX=myX-W/2,camY=myY-H/2;
+
+  // Background
+  ctx.fillStyle='#111';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  ctx.strokeStyle='#1a1a1a';
+  ctx.lineWidth=1;
+  const gridSize=50;
+  const startX=(-camX%gridSize+gridSize)%gridSize;
+  const startY=(-camY%gridSize+gridSize)%gridSize;
+  for(let x=startX;x<W;x+=gridSize){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=startY;y<H;y+=gridSize){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+
+  // World border
+  ctx.strokeStyle='#333';
+  ctx.lineWidth=2;
+  ctx.strokeRect(-camX,-camY,WORLD_W,WORLD_H);
+
+  // Draw all players
+  const now=Date.now();
+  Object.entries(players).forEach(([id,p])=>{
+    // Skip stale players (no update in 10s)
+    if(now-p.t>10000)return;
+
+    const sx=p.x-camX,sy=p.y-camY;
+    // Skip if off screen
+    if(sx<-50||sx>W+50||sy<-50||sy>H+50)return;
+
+    const isMe=id===myId;
+    const color=isMe?myColor:(p.color||'#888');
+    const name=isMe?myName:(p.name||'Unknown');
+
+    // Shadow
+    ctx.fillStyle='rgba(0,0,0,.3)';
+    ctx.beginPath();
+    ctx.ellipse(sx,sy+SIZE+4,SIZE*.8,SIZE*.3,0,0,Math.PI*2);
+    ctx.fill();
+
+    // Body circle
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(sx,sy,SIZE,0,Math.PI*2);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle=isMe?'#fff':'rgba(255,255,255,.3)';
+    ctx.lineWidth=isMe?3:1.5;
+    ctx.stroke();
+
+    // Eyes
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(sx-7,sy-4,5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(sx+7,sy-4,5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#111';
+    ctx.beginPath();ctx.arc(sx-6,sy-3,2.5,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(sx+8,sy-3,2.5,0,Math.PI*2);ctx.fill();
+
+    // Smile
+    ctx.strokeStyle='#111';
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.arc(sx,sy+2,6,0.1*Math.PI,0.9*Math.PI);
+    ctx.stroke();
+
+    // Name tag
+    ctx.font='bold 12px sans-serif';
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(0,0,0,.6)';
+    const tw=ctx.measureText(name).width;
+    ctx.fillRect(sx-tw/2-6,sy-SIZE-22,tw+12,18);
+    ctx.fillStyle=isMe?'#fff':'#aaa';
+    ctx.fillText(name,sx,sy-SIZE-8);
+  });
+
+  // Minimap
+  const mmW=120,mmH=120;
+  const mmX=W-mmW-10,mmY=H-mmH-10;
+  ctx.fillStyle='rgba(0,0,0,.5)';
+  ctx.fillRect(mmX,mmY,mmW,mmH);
+  ctx.strokeStyle='#333';
+  ctx.strokeRect(mmX,mmY,mmW,mmH);
+
+  Object.entries(players).forEach(([id,p])=>{
+    if(now-p.t>10000)return;
+    const mx=mmX+(p.x/WORLD_W)*mmW;
+    const my=mmY+(p.y/WORLD_H)*mmH;
+    ctx.fillStyle=id===myId?'#fff':(p.color||'#888');
+    ctx.fillRect(mx-2,my-2,4,4);
+  });
+
+  // "You" label on minimap
+  const myMx=mmX+(myX/WORLD_W)*mmW;
+  const myMy=mmY+(myY/WORLD_H)*mmH;
+  ctx.strokeStyle='#fff';
+  ctx.strokeRect(myMx-4,myMy-4,8,8);
+}
+
+// ═══ CLEANUP STALE PLAYERS ═══
+setInterval(()=>{
+  if(!joined)return;
+  const now=Date.now();
+  Object.entries(players).forEach(([id,p])=>{
+    if(id!==myId&&now-p.t>15000){
+      db.ref(RT+'/'+id).remove();
+    }
+  });
+},5000);
+
+// Enter key to join
+document.getElementById('name-input').addEventListener('keydown',e=>{if(e.key==='Enter')setName()});
+</script>
+</body>
+</html>
