@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -689,9 +690,21 @@ function updateShop(){
 
 // ---- INPUT ----
 document.addEventListener('keydown',e=>{
+  // Don't capture movement keys when typing in an input
+  const inInput=document.activeElement&&document.activeElement.tagName==='INPUT';
   const k=e.key.toLowerCase();
+  
+  // If arrow key pressed while in input, blur the input so movement works
+  if(inInput && ['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){
+    document.activeElement.blur();
+  }
+  // If typing W/A/S/D in an input, don't treat as movement
+  if(inInput && !['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){
+    return;
+  }
+  
   keys[k]=true;
-  // FIXED: Prevent arrow keys from scrolling the page
+  // Prevent arrow keys from scrolling the page
   if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){
     e.preventDefault();
   }
@@ -801,6 +814,8 @@ function showGameOver(won){
 }
 
 function checkVictory(){
+  // Need at least 2 players total for victory/defeat to matter
+  if(G.players.length<2)return;
   const alive=G.players.filter(p=>p.alive);
   if(alive.length===1){
     if(alive[0].id===meIdx) showGameOver(true);
