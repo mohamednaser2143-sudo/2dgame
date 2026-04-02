@@ -23,6 +23,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#e8e0d
 .csw:hover{transform:scale(1.15)}.csw.sel{border-color:#fff;transform:scale(1.2)}
 .btn{display:inline-block;padding:14px 44px;margin:6px;font-family:'Cinzel',serif;font-size:14px;font-weight:700;letter-spacing:3px;border:1px solid #d4af37;background:0 0;color:#d4af37;cursor:pointer;transition:.3s}
 .btn:hover{background:#d4af37;color:#0a0a0f}
+.btn-mode{padding:18px 36px;margin:8px;font-size:13px;min-width:160px}
 
 /* HUD */
 #hud{position:fixed;top:0;left:0;right:0;z-index:100;display:none;justify-content:space-between;padding:8px 14px;pointer-events:none}
@@ -73,6 +74,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#e8e0d
 .go-box p{color:#a09080;margin:16px 0 24px;font-size:13px}
 
 canvas#gc{display:block;cursor:crosshair}
+
+/* SCREEN TRANSITIONS */
+.screen{display:none}.screen.active{display:block}
+.mode-desc{color:#8a7a60;font-size:10px;letter-spacing:1px;margin-top:4px}
 </style>
 </head>
 <body>
@@ -81,14 +86,34 @@ canvas#gc{display:block;cursor:crosshair}
   <div class="lobby-box">
     <h1>CONQUEST</h1>
     <div class="sub">TERRITORY WAR</div>
-    <div class="lr"><label>NAME</label><input id="pname" type="text" value="Commander" maxlength="16"></div>
-    <div class="lr"><label>MODE</label><select id="gmode"><option value="bots">VS BOTS</option><option value="online">ONLINE</option></select></div>
-    <div class="lr"><label>PLAYERS</label><select id="nplayers"><option>4</option><option>8</option><option>12</option><option selected>16</option></select></div>
-    <div class="lr"><label>GRID</label><select id="gsize"><option value="8">8×8</option><option value="10">10×10</option><option selected value="12">12×12</option><option value="16">16×16</option></select></div>
-    <div class="lr"><label>COLOR</label></div>
-    <div class="colors" id="cpick"></div>
-    <button class="btn" id="startbtn">MARCH TO WAR</button>
-    <div id="lstatus" style="margin-top:10px;font-size:10px;color:#8a7a60"></div>
+
+    <!-- SCREEN 1: Mode Selection -->
+    <div id="screen-mode" class="screen active">
+      <button class="btn btn-mode" id="btn-online">ONLINE</button>
+      <button class="btn btn-mode" id="btn-bots">VS BOTS</button>
+      <div class="mode-desc" style="margin-top:16px">Choose your battlefield</div>
+    </div>
+
+    <!-- SCREEN 2: Online Setup (name + color only) -->
+    <div id="screen-online" class="screen">
+      <div class="lr"><label>NAME</label><input id="pname-online" type="text" value="Commander" maxlength="16"></div>
+      <div class="lr"><label>COLOR</label></div>
+      <div class="colors" id="cpick-online"></div>
+      <button class="btn" id="start-online">MARCH TO WAR</button>
+      <div style="margin-top:8px"><button class="btn" style="padding:8px 20px;font-size:10px;border-color:#3a3040;color:#8a7a60" id="back-online">BACK</button></div>
+      <div id="lstatus" style="margin-top:10px;font-size:10px;color:#8a7a60"></div>
+    </div>
+
+    <!-- SCREEN 3: Bot Setup (name, color, grid, bots) -->
+    <div id="screen-bots" class="screen">
+      <div class="lr"><label>NAME</label><input id="pname-bots" type="text" value="Commander" maxlength="16"></div>
+      <div class="lr"><label>GRID</label><select id="gsize"><option value="8">8×8</option><option value="10">10×10</option><option selected value="12">12×12</option><option value="16">16×16</option></select></div>
+      <div class="lr"><label>BOTS</label><select id="nbots"><option>3</option><option>5</option><option>7</option><option selected>11</option><option>15</option></select></div>
+      <div class="lr"><label>COLOR</label></div>
+      <div class="colors" id="cpick-bots"></div>
+      <button class="btn" id="start-bots">MARCH TO WAR</button>
+      <div style="margin-top:8px"><button class="btn" style="padding:8px 20px;font-size:10px;border-color:#3a3040;color:#8a7a60" id="back-bots">BACK</button></div>
+    </div>
   </div>
 </div>
 
@@ -134,7 +159,7 @@ canvas#gc{display:block;cursor:crosshair}
 
 <script>
 // ================================================================
-//  CONQUEST — TERRITORY WAR (complete game)
+//  CONQUEST — TERRITORY WAR (fixed version)
 // ================================================================
 
 const PCOLORS=['#e63946','#457b9d','#2a9d8f','#e9c46a','#f4a261','#264653','#6a4c93','#1982c4','#8ac926','#ff595e','#ffca3a','#8338ec','#ff006e','#3a86ff','#fb5607','#06d6a0'];
@@ -149,35 +174,90 @@ let me=null, meIdx=0;
 let cam={x:0,y:0}, keys={}, action=null, selTerr=null, selTerr2=null;
 let capProg=0, capTarget=null, shopOpen=false, gameOn=false, lastT=0;
 let particles=[], floatingTexts=[];
+let currentMode='bots'; // 'bots' or 'online'
 
-// ---- LOBBY ----
-const cpEl=document.getElementById('cpick');
-let selColor=0;
-PCOLORS.forEach((c,i)=>{
-  const d=document.createElement('div');
-  d.className='csw'+(i===0?' sel':'');
-  d.style.background=c;
-  d.onclick=()=>{document.querySelectorAll('.csw').forEach(s=>s.classList.remove('sel'));d.classList.add('sel');selColor=i;};
-  cpEl.appendChild(d);
-});
+// ---- LOBBY SCREENS ----
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
 
-document.getElementById('startbtn').onclick=startGame;
+// Color picker setup for both screens
+let selColorOnline=0, selColorBots=0;
+function setupColorPicker(containerId, getSet){
+  const el=document.getElementById(containerId);
+  PCOLORS.forEach((c,i)=>{
+    const d=document.createElement('div');
+    d.className='csw'+(i===0?' sel':'');
+    d.style.background=c;
+    d.onclick=()=>{
+      el.querySelectorAll('.csw').forEach(s=>s.classList.remove('sel'));
+      d.classList.add('sel');
+      getSet(i);
+    };
+    el.appendChild(d);
+  });
+}
+setupColorPicker('cpick-online', v=>{ selColorOnline=v; });
+setupColorPicker('cpick-bots', v=>{ selColorBots=v; });
 
-function startGame(){
-  const name=document.getElementById('pname').value.trim()||'Commander';
-  const mode=document.getElementById('gmode').value;
-  const np=parseInt(document.getElementById('nplayers').value);
+// Mode selection buttons
+document.getElementById('btn-online').onclick=()=>{ currentMode='online'; showScreen('screen-online'); };
+document.getElementById('btn-bots').onclick=()=>{ currentMode='bots'; showScreen('screen-bots'); };
+document.getElementById('back-online').onclick=()=>showScreen('screen-mode');
+document.getElementById('back-bots').onclick=()=>showScreen('screen-mode');
+
+// Start buttons
+document.getElementById('start-online').onclick=()=>startOnline();
+document.getElementById('start-bots').onclick=()=>startBots();
+
+function startOnline(){
+  const name=document.getElementById('pname-online').value.trim()||'Commander';
+  // Online mode: fixed 12x12 grid, no bots, just the player
+  // In a real implementation this would connect to Firebase/WebSocket
+  // For now, start with just the player on a 12x12 grid, no bots
+  G.size=12;
+  initGrid(12);
+  
+  // Only the player, no bots
+  G.players=[];
+  const spawns=getSpawnPositions(1,G.size);
+  const sp=spawns[0];
+  G.players.push({
+    id:0, name:name, color:PCOLORS[selColorOnline],
+    gold:0, troops:5, tier:0,
+    goldRate:BASE_GOLD, troopRate:BASE_TROOP,
+    isBot:false, alive:true,
+    spawnR:sp[0], spawnC:sp[1],
+    botTimer:0, botAction:null
+  });
+  G.grid[sp[0]][sp[1]].owner=0;
+  G.grid[sp[0]][sp[1]].troops=3;
+  me=G.players[0];
+  meIdx=0;
+  
+  document.getElementById('lstatus').textContent='Online mode requires server — playing solo for now.';
+  launchGame();
+}
+
+function startBots(){
+  const name=document.getElementById('pname-bots').value.trim()||'Commander';
   const gs=parseInt(document.getElementById('gsize').value);
+  const nbots=parseInt(document.getElementById('nbots').value);
+  const np=nbots+1; // bots + player
   G.size=gs;
   initGrid(gs);
-  initPlayers(np, name, mode);
+  initPlayers(np, name, selColorBots);
+  launchGame();
+}
+
+function launchGame(){
   document.getElementById('lobby').style.display='none';
   document.getElementById('hud').style.display='flex';
   document.getElementById('mm-wrap').style.display='block';
   document.getElementById('lb').style.display='block';
   document.getElementById('abar').style.display='flex';
   gameOn=true;
-  // Center camera on player's spawn
   const myTerrs=getPlayerTerritories(meIdx);
   if(myTerrs.length){
     cam.x=myTerrs[0].col*CELL+CELL/2-W/2;
@@ -199,23 +279,20 @@ function initGrid(size){
 }
 
 // ---- PLAYERS ----
-function initPlayers(np, myName, mode){
+function initPlayers(np, myName, myColorIdx){
   G.players=[];
-  // Spawn positions spread across grid
   const spawns=getSpawnPositions(np,G.size);
   for(let i=0;i<np;i++){
     const isMe=i===0;
     const sp=spawns[i];
     G.players.push({
-      id:i, name:isMe?myName:botName(i), color:PCOLORS[(selColor+i)%16],
+      id:i, name:isMe?myName:botName(i), color:PCOLORS[(myColorIdx+i)%16],
       gold:0, troops:5, tier:0,
       goldRate:BASE_GOLD, troopRate:BASE_TROOP,
       isBot:!isMe, alive:true,
       spawnR:sp[0], spawnC:sp[1],
-      // Bot AI state
       botTimer:0, botAction:null
     });
-    // Give starting territory
     G.grid[sp[0]][sp[1]].owner=i;
     G.grid[sp[0]][sp[1]].troops=3;
   }
@@ -235,8 +312,6 @@ function getSpawnPositions(np,gs){
   for(let r=margin;r<gs-margin;r++)
     for(let c=margin;c<gs-margin;c++)
       available.push([r,c]);
-  // Spread them out using greedy farthest-first
-  // Pick first randomly
   let idx=Math.floor(Math.random()*available.length);
   positions.push(available.splice(idx,1)[0]);
   for(let i=1;i<np&&available.length;i++){
@@ -275,14 +350,13 @@ function tickEconomy(dt){
   for(const p of G.players){
     if(!p.alive)continue;
     const terrCount=getPlayerTerritories(p.id).length;
-    // Gold rate: base * territories, balanced so 50K takes ~5-8 min
-    // base 20/s * avg 3 territories = 60/s => 50K in ~14 min, let's boost per-territory
     p.goldRate = BASE_GOLD + terrCount * 8;
     p.troopRate = BASE_TROOP + terrCount * 0.3;
     p.gold += p.goldRate * dt;
     p.troops += p.troopRate * dt;
-    // Check alive
-    if(terrCount===0 && p.troops<1){
+    // FIXED: Player dies only when ALL lands are conquered (0 territories)
+    // Troops alone don't kill you — only losing all territory does
+    if(terrCount===0){
       p.alive=false;
       if(p.id===meIdx){ showGameOver(false); }
     }
@@ -296,7 +370,6 @@ function doBattle(atkPid, defCell, atkTroops){
   const atkPower=atkTroops * TIER_POWER[atkP.tier];
   const defPower=defCell.troops * (defP? TIER_POWER[defP.tier]:1);
   if(atkPower > defPower){
-    // Attacker wins
     const remaining = atkTroops - Math.ceil(defCell.troops * (defP?TIER_POWER[defP.tier]:1) / TIER_POWER[atkP.tier]);
     defCell.troops = Math.max(1, remaining);
     defCell.owner = atkPid;
@@ -305,7 +378,6 @@ function doBattle(atkPid, defCell, atkTroops){
     addFloat(defCell.col*CELL+CELL/2, defCell.row*CELL+CELL/2, 'CAPTURED!', atkP.color);
     return true;
   } else {
-    // Defender wins
     const lost = Math.ceil(atkTroops * TIER_POWER[atkP.tier] / (defP?TIER_POWER[defP.tier]:1));
     defCell.troops = Math.max(0, defCell.troops - lost);
     addFloat(defCell.col*CELL+CELL/2, defCell.row*CELL+CELL/2, 'REPELLED', '#f44');
@@ -319,22 +391,15 @@ function tickBots(dt){
     if(!p.isBot || !p.alive) continue;
     p.botTimer-=dt;
     if(p.botTimer>0) continue;
-    p.botTimer=1.5+Math.random()*2; // Act every 1.5-3.5 seconds
+    p.botTimer=1.5+Math.random()*2;
 
     const myTerr=getPlayerTerritories(p.id);
     if(myTerr.length===0){
-      // Try to deploy to reclaim
-      if(p.troops>=5){
-        // Find any empty neighbor of... well, bot is dead basically
-        continue;
-      }
       continue;
     }
 
-    // Decision: deploy, reinforce, or attack
     const roll=Math.random();
     if(roll<0.3 && p.troops>=3){
-      // Deploy troops to weakest territory
       const weakest=myTerr.reduce((a,b)=>a.troops<b.troops?a:b);
       const amt=Math.min(Math.floor(p.troops*0.5), Math.floor(p.troops));
       if(amt>=1){
@@ -342,7 +407,6 @@ function tickBots(dt){
         p.troops-=amt;
       }
     } else if(roll<0.7){
-      // Attack a neighbor
       let bestTarget=null, bestScore=-1;
       for(const t of myTerr){
         for(const nb of neighbors(t.row,t.col)){
@@ -358,7 +422,6 @@ function tickBots(dt){
         doBattle(p.id, bestTarget.to, sendAmt);
       }
     } else {
-      // Move troops to front line
       const frontLine=myTerr.filter(t=>neighbors(t.row,t.col).some(n=>n.owner!==p.id));
       const backLine=myTerr.filter(t=>!frontLine.includes(t)&&t.troops>2);
       if(backLine.length && frontLine.length){
@@ -369,7 +432,6 @@ function tickBots(dt){
       }
     }
 
-    // Try to upgrade
     if(p.tier<3 && p.gold>=TIER_COST[p.tier+1]){
       p.gold-=TIER_COST[p.tier+1];
       p.tier++;
@@ -402,7 +464,6 @@ function tickParticles(dt){
 // ---- CAPTURE MECHANIC ----
 function tickCapture(dt){
   if(!keys['u']&&!keys['U']){capProg=0;capTarget=null;document.getElementById('capbar').style.display='none';return;}
-  // Find what cell the player is "on" — use center of screen
   const cx=cam.x+W/2, cy=cam.y+H/2;
   const col=Math.floor(cx/CELL), row=Math.floor(cy/CELL);
   if(row<0||row>=G.size||col<0||col>=G.size){capProg=0;return;}
@@ -411,7 +472,6 @@ function tickCapture(dt){
   if(cell.troops>0){
     toast('Clear defenders first!');capProg=0;document.getElementById('capbar').style.display='none';return;
   }
-  // Can only capture if we have adjacent territory
   const adj=neighbors(row,col);
   if(!adj.some(n=>n.owner===meIdx)){capProg=0;document.getElementById('capbar').style.display='none';return;}
 
@@ -438,18 +498,15 @@ function draw(){
   ctx.save();
   ctx.translate(-cam.x,-cam.y);
 
-  // Grid
   for(let r=0;r<G.size;r++){
     for(let c=0;c<G.size;c++){
       const cell=G.grid[r][c];
       const x=c*CELL, y=r*CELL;
 
-      // Territory fill
       if(cell.owner>=0){
         const p=G.players[cell.owner];
         ctx.fillStyle=p.color+'33';
         ctx.fillRect(x+1,y+1,CELL-2,CELL-2);
-        // Border
         ctx.strokeStyle=p.color+'88';
         ctx.lineWidth=2;
         ctx.strokeRect(x+1,y+1,CELL-2,CELL-2);
@@ -461,30 +518,33 @@ function draw(){
         ctx.strokeRect(x+1,y+1,CELL-2,CELL-2);
       }
 
-      // Flag icon (center dot)
       if(cell.owner>=0){
         ctx.fillStyle=G.players[cell.owner].color;
         ctx.beginPath();
         ctx.arc(x+CELL/2,y+CELL/2,6,0,Math.PI*2);
         ctx.fill();
-        // Flag pole
         ctx.strokeStyle=G.players[cell.owner].color;
         ctx.lineWidth=2;
         ctx.beginPath();ctx.moveTo(x+CELL/2,y+CELL/2);ctx.lineTo(x+CELL/2,y+CELL/2-16);ctx.stroke();
-        // Flag
         ctx.fillStyle=G.players[cell.owner].color+'cc';
         ctx.fillRect(x+CELL/2,y+CELL/2-16,12,8);
       }
 
-      // Troop count
       if(cell.troops>0){
+        const owner=G.players[cell.owner];
+        const effectivePower=Math.floor(cell.troops * (owner?TIER_POWER[owner.tier]:1));
         ctx.fillStyle='#fff';
         ctx.font='bold 11px "JetBrains Mono"';
         ctx.textAlign='center';
         ctx.fillText(Math.floor(cell.troops),x+CELL/2,y+CELL-8);
+        // Show effective power if tier > 0
+        if(owner && owner.tier>0){
+          ctx.fillStyle='#d4af37';
+          ctx.font='bold 9px "JetBrains Mono"';
+          ctx.fillText('⚔'+effectivePower,x+CELL/2,y+CELL-20);
+        }
       }
 
-      // Coordinates (subtle)
       ctx.fillStyle='#2a2a3a';
       ctx.font='8px "JetBrains Mono"';
       ctx.textAlign='left';
@@ -492,7 +552,6 @@ function draw(){
     }
   }
 
-  // Highlight selected territory
   if(selTerr){
     ctx.strokeStyle='#fff';
     ctx.lineWidth=3;
@@ -501,7 +560,6 @@ function draw(){
     ctx.setLineDash([]);
   }
 
-  // Highlight action targets
   if(action && selTerr){
     const nbs = action==='move'
       ? getPlayerTerritories(meIdx).filter(t=>t!==selTerr)
@@ -517,14 +575,12 @@ function draw(){
     }
   }
 
-  // Crosshair in center of view
   const cx=cam.x+W/2, cy=cam.y+H/2;
   ctx.strokeStyle='#d4af3766';
   ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(cx-12,cy);ctx.lineTo(cx+12,cy);ctx.stroke();
   ctx.beginPath();ctx.moveTo(cx,cy-12);ctx.lineTo(cx,cy+12);ctx.stroke();
 
-  // Particles
   for(const p of particles){
     ctx.globalAlpha=p.life;
     ctx.fillStyle=p.color;
@@ -532,7 +588,6 @@ function draw(){
   }
   ctx.globalAlpha=1;
 
-  // Floating text
   for(const f of floatingTexts){
     ctx.globalAlpha=Math.min(1,f.life);
     ctx.fillStyle=f.color;
@@ -543,8 +598,6 @@ function draw(){
   ctx.globalAlpha=1;
 
   ctx.restore();
-
-  // Draw minimap
   drawMinimap();
 }
 
@@ -564,7 +617,6 @@ function drawMinimap(){
       mmCtx.fillRect(c*cs,r*cs,cs-0.5,cs-0.5);
     }
   }
-  // Camera viewport
   const vx=(cam.x/(G.size*CELL))*mmS;
   const vy=(cam.y/(G.size*CELL))*mmS;
   const vw=(W/(G.size*CELL))*mmS;
@@ -575,16 +627,23 @@ function drawMinimap(){
 }
 
 // ---- HUD UPDATE ----
+let lastShopTier=-1, lastShopGold=-1;
 function updateHUD(){
   if(!me)return;
   document.getElementById('hgold').textContent=formatNum(Math.floor(me.gold));
   document.getElementById('htroops').textContent=Math.floor(me.troops);
-  document.getElementById('htier').textContent=TIER_NAME[me.tier];
+  document.getElementById('htier').textContent=TIER_NAME[me.tier]+' (×'+TIER_POWER[me.tier]+')';
   document.getElementById('hland').textContent=getPlayerTerritories(meIdx).length;
   document.getElementById('hincome').textContent='+'+Math.floor(me.goldRate);
   document.getElementById('htgen').textContent='+'+me.troopRate.toFixed(1);
   updateLeaderboard();
-  updateShop();
+  // Only rebuild shop when tier or gold bracket changes (so clicks aren't eaten)
+  const goldBracket=Math.floor(me.gold/1000);
+  if(me.tier!==lastShopTier||goldBracket!==lastShopGold){
+    lastShopTier=me.tier;
+    lastShopGold=goldBracket;
+    updateShop();
+  }
 }
 
 function formatNum(n){
@@ -616,7 +675,7 @@ function updateShop(){
     div.className='si'+(owned?' owned':'');
     div.innerHTML=`<div class="sn">${TIER_NAME[i]}</div>
       <div class="sc">${owned?'OWNED':formatNum(TIER_COST[i])+' gold'}</div>
-      <div class="sd">Power: ×${TIER_POWER[i]}</div>`;
+      <div class="sd">All troops fight at ×${TIER_POWER[i]} strength</div>`;
     if(!owned && canBuy){
       div.onclick=()=>{
         me.gold-=TIER_COST[i];
@@ -630,7 +689,12 @@ function updateShop(){
 
 // ---- INPUT ----
 document.addEventListener('keydown',e=>{
-  keys[e.key.toLowerCase()]=true;
+  const k=e.key.toLowerCase();
+  keys[k]=true;
+  // FIXED: Prevent arrow keys from scrolling the page
+  if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k)){
+    e.preventDefault();
+  }
   if(!gameOn)return;
   if(e.key==='1')setAction('deploy');
   if(e.key==='2')setAction('move');
@@ -704,7 +768,6 @@ document.getElementById('gc').addEventListener('click',e=>{
       selTerr=cell;
       toast('Now click enemy neighbor to attack');
     } else {
-      // Validate target
       if(cell.owner===meIdx){toast('That\'s your territory!');selTerr=null;return;}
       const adj=neighbors(selTerr.row,selTerr.col);
       if(!adj.includes(cell)){toast('Must attack adjacent territory');selTerr=null;return;}
@@ -743,19 +806,18 @@ function checkVictory(){
     if(alive[0].id===meIdx) showGameOver(true);
     else showGameOver(false);
   }
-  // Also check if only me left with territories
   const withTerr=G.players.filter(p=>getPlayerTerritories(p.id).length>0);
   if(withTerr.length===1 && withTerr[0].id===meIdx) showGameOver(true);
 }
 
 // ---- CAMERA MOVEMENT ----
+// FIXED: Arrow keys now work in ALL directions (left/right were already there but re-confirmed)
 function tickCamera(dt){
   const spd=300;
   if(keys['w']||keys['arrowup'])cam.y-=spd*dt;
   if(keys['s']||keys['arrowdown'])cam.y+=spd*dt;
   if(keys['a']||keys['arrowleft'])cam.x-=spd*dt;
   if(keys['d']||keys['arrowright'])cam.x+=spd*dt;
-  // Clamp
   const maxX=G.size*CELL-W;
   const maxY=G.size*CELL-H;
   cam.x=Math.max(0,Math.min(cam.x,maxX));
@@ -793,24 +855,6 @@ function resize(){
   W=window.innerWidth;H=window.innerHeight;
   canvas.width=W;canvas.height=H;
 }
-
-// ---- FIREBASE MULTIPLAYER STUB ----
-// Firebase integration for online mode
-// Project: fortuna-64c00
-(function initFirebase(){
-  const mode=document.getElementById('gmode');
-  // We'll load firebase dynamically when online mode is chosen
-  document.getElementById('startbtn').addEventListener('click',function checkOnline(){
-    // Firebase would sync G.grid, G.players, and actions
-    // For now the bot mode is fully functional
-    if(mode.value==='online'){
-      document.getElementById('lstatus').textContent='Online mode requires Firebase SDK — playing with bots for now.';
-      // In production, load: https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js
-      // firebase.initializeApp({ projectId: "fortuna-64c00", ... })
-      // Then sync game state via Realtime Database
-    }
-  },{once:false});
-})();
 
 // Boot
 initCanvas();
